@@ -1,0 +1,474 @@
+### IMPORTING
+import numpy             as np
+import matplotlib.pyplot as plt
+%matplotlib inline
+from scipy.optimize      import fsolve, curve_fit
+from scipy.integrate     import odeint, quad
+from scipy.interpolate   import interp1d
+from scipy.misc          import derivative
+import scipy.constants   as const
+import sympy             as sp
+sp.init_printing()
+import glob
+from scipy.optimize import minimize
+import matplotlib.pyplot as plt# %load http://che.byu.edu/imports.py
+import numpy             as np
+import matplotlib.pyplot as plt
+%matplotlib inline
+from scipy.optimize      import fsolve, curve_fit
+from scipy.integrate     import odeint, quad
+from scipy.interpolate   import interp1d
+from scipy.misc          import derivative
+import scipy.constants   as const
+# import sympy             as sp
+# sp.init_printing()
+import glob
+import time
+import pandas as pd
+import scipy as sp
+import solarsystem as ss
+import datetime
+pi = 3.14159265359
+import math
+from datetime import date,datetime
+
+#PARAMETERS
+mass = {'Mercury':3.285*10**23,
+'Venus':4.867*10**24,
+'Earth': 5.972*10**24,
+'Mars': 6.39*10**23,
+'Jupiter': 1.898*10**27,
+'Saturn':  5.683*10**26,  
+'Uranus': 8.681*10**25,  
+'Neptune':1.024*10**26,    
+'Pluto':0.01303*10**24,    
+'Ceres':9.1*10**20, 
+'Chiron':4*10**17, 
+'Eris':1.6466*10**22,
+'Sun':1.989*10**30,
+'Rocket':1000}                  #kg
+
+radius = {'Mercury':4878/2,
+'Venus':12104/2,
+'Earth':12756/2,
+'Mars':6794/2,
+'Jupiter':142984/2,
+'Saturn':120536/2,  
+'Uranus':51118/2,  
+'Neptune':49532,    
+'Pluto':1188,    
+'Ceres':473, 
+'Chiron':135, 
+'Eris':1163,
+'Sun':696340,
+'Rocket':0.002}                #km
+
+c = 299792458  #m/s
+G  = 6.674*10**-11              #Nm^2/kg^2
+
+F = 83 #newtons of force  original value was 83E-3
+
+#MOVEME3NT OF CELESTIAL OBJECTS
+#COLLECTING XYZ POSITIONS AND VELOCITIES FOR ALL CELESTIAL OBJECTS
+def movement(t0,t_plus,print=False):
+    #TIME
+    time = datetime.fromtimestamp(t0+t_plus)
+    year   = time.year
+    month  = time.month
+    day    = time.day
+    hour   = time.hour
+    minute = time.minute
+
+    UT                 = 0
+    dst                = 0 
+    view               ='horizontal'
+    H                  = ss.Heliocentric(year=year, month=month, day=day, hour=hour, minute=minute,UT=UT, dst=dst, view=view )
+    celestial_object   = H.planets()
+    distances          = []
+    dict               = {}
+    if print==True:
+        print('Planet', '   \t','Longitude', '  \t','Latitude', '   \t','Distance')
+        print('-------------------------------------------------------------------')
+
+    for key in celestial_object:
+        distances.append(celestial_object[key][2])
+        elements = celestial_object[key]
+        dict[key] = [elements[0],elements[1],elements[2]*1.496E8]
+        if print==True:
+            print(key, '   \t',round(elements[0],2), '  \t',round(elements[1],2), '   \t',round(elements[2]*1.496E8,2))
+    if print==True:
+        print()
+        print('Distance in m')
+
+    #CONVERTING TO XY PLANE
+    dict_xyz = {}
+    for key in dict:
+        #READING THE HORIZONTAL DATA 
+        longitude,latitude,distance = dict[key] 
+
+        #X AND Y ACCORDING TO THE QUADRANT
+        if 90>longitude>=0:  #QUADRANT I
+            θ = longitude*pi/180
+            x = np.cos(θ)*distance
+            y = np.sin(θ)*distance
+
+        if 180>longitude>=90:  #QUADRANT II
+            θ = pi-longitude*pi/180
+            x = -np.cos(θ)*distance
+            y = np.sin(θ)*distance
+
+        if 270>longitude>=180:  #QUADRANT III
+            θ = longitude*pi/180-pi
+            x = -np.cos(θ)*distance
+            y = -np.sin(θ)*distance
+
+        if 360>longitude>=270: #QUADRANT IV
+            θ = 2*pi-longitude*pi/180
+            x = np.cos(θ)*distance
+            y = -np.sin(θ)*distance
+
+        #FINDING THE Z COORDINATE
+        if np.abs(latitude)!=latitude:
+            θ = np.abs(latitude)*pi/180
+            z = -np.sin(θ)*distance
+
+        if 270<latitude<360:
+            θ = 2*pi-latitude*pi/180
+            z = -np.sin(θ)*distance
+
+        if 0<latitude<90:
+            θ = latitude*pi/180
+            z = np.sin(θ)*distance
+
+        #SAVING DATA TO DICT XYZ
+        dict_inner    = {'x':x,'y':y,'z':z}
+        dict_xyz[key] = dict_inner       #distance in kilometers
+    return dict_xyz
+    
+#COLLISION FUNCTION
+def collision(px,py):
+    Return = 0
+    for i, planet in enumerate(names,0):
+        if planet=='Rocket':
+            continue
+        dx = px[i][-1]-px[-1][-1]
+        dy = py[i][-1]-py[-1][-1]
+        d  = (dx**2+dy**2)**0.5
+        if d<radius[planet]:
+            print(f'Rocket collided with the planet {planet}')
+            Return = 1
+            break
+        else:
+            Return = 0
+            
+    return Return 
+    
+    #SIMULATOR
+    #UNITS
+'''KILOMETERS, KG, SECONDS'''
+#PARAMETERS
+names = ['Earth','Venus','Mercury' , 'Rocket']
+Mass = np.zeros(len(names))
+for i,p in enumerate(names,0):Mass[i] = mass[p]  
+G  = (6.674*10**-11)*(1/1000)**3                        #Nkm^2/kg^2  N = kg*km/s**2
+    
+#TIME ARRAY
+dt = 1   #seconds
+start = time.time()
+
+'''POSITION VARIABLES'''
+px = []
+py = []
+
+'''VELOCITY VARIABLES'''
+vx_rocket = []
+vy_rocket = []
+
+'''ACCELERATION VARIABLES'''
+ax_rocket = []
+ay_rocket = []
+
+'''FORCE VARIABLES'''
+fx_rocket = []
+fy_rocket = []
+
+'''COUNTING'''
+counter     = []
+time_array  = []
+flight_time = 0
+t0          = time.time()
+time_array.append(time.time())
+
+
+
+###############################################
+'''THE FUNCTION'''
+def function(heading,x_rocket_0,y_rocket_0,x_target,y_target):
+    '''RESETING ARRAYS'''    
+    px.clear()
+    py.clear()
+    vx_rocket.clear()
+    vy_rocket.clear()
+    ax_rocket.clear()
+    ay_rocket.clear()
+    fx_rocket.clear()
+    fy_rocket.clear()
+    
+    
+    '''INITIALIZING DATA'''
+    '''POSITIONS'''
+    px_now = movement(time.time(),0)
+    for i in range(len(names)): px.append([]),py.append([])
+    for i,planet in enumerate(names,0): 
+        if planet=='Rocket':
+            px[i].append(x_rocket_0),py[i].append(y_rocket_0)
+            continue
+        px[i].append(px_now[planet]['x']),py[i].append(px_now[planet]['y'])
+    
+    '''VELOCITIES'''
+    vx_rocket.append(0)
+    vy_rocket.append(0)
+    
+    '''ACCELERATION'''
+    ax_rocket.append(0)
+    ay_rocket.append(0)
+    
+    '''FORCE'''
+    fx_rocket.append(0)
+    fy_rocket.append(0)
+    
+    '''ROCKET X, Y & Z FORCES '''
+    
+    '''HEADING'''
+            #X AND Y ACCORDING TO THE QUADRANT
+    Heading = heading
+    if heading>360:
+        while Heading>360:
+            Heading-=360
+    if heading<0:
+        while Heading<0:
+            Heading+=360
+    if 90>Heading>=0:  #QUADRANT I
+        θ = Heading*pi/180
+        fx_thrust = np.cos(θ)*F
+        fy_thrust = np.sin(θ)*F
+
+    if 180>Heading>=90:  #QUADRANT II
+        θ = pi-Heading*pi/180
+        fx_thrust = -np.cos(θ)*F
+        fy_thrust = np.sin(θ)*F
+
+    if 270>Heading>=180:  #QUADRANT III
+        θ = Heading*pi/180-pi
+        fx_thrust = -np.cos(θ)*F
+        fy_thrust = -np.sin(θ)*F
+
+    if 360>Heading>=270: #QUADRANT IV
+        θ = 2*pi-Heading*pi/180
+        fx_thrust = np.cos(θ)*F
+        fy_thrust = -np.sin(θ)*F
+    print('The heading is', Heading)
+
+    '''INITIALIZING THE DISTANCE AND TIME'''
+    dx =x_target-x_rocket_0 
+    dy =y_target-y_rocket_0
+    distance = (dx**2+dy**2)**0.5
+    distance0=distance
+    t =0
+    flight_time = 0
+    A = 0
+    
+ ###################################   
+    
+    '''START THE WHILE LOOP'''
+    while distance>1000 and A==0:               #km
+        
+        '''PLANETARY MOVEMENT'''
+        xyz_planet = movement(t0,t)
+        
+        '''FINDING PLANET PX'''
+        for i,x1 in enumerate(px,0):
+            sum_force = 0               #only for the rocket
+            if names[i]=='Rocket':
+                for j,x2 in enumerate(px,0):
+                    if x1[t]>x2[t]:
+                        sign1x = -1
+                        sign2x = 1
+                    else:
+                        sign1x = 1
+                        sign2x = -1     
+                    if names[j]!='Rocket':
+                        sum_force+=G*Mass[i]*Mass[j]/(x1[t]-x2[t])**2*sign1x
+                sum_force+=fx_thrust
+                fx_rocket.append(sum_force)
+                continue            
+            x1.append(xyz_planet[names[i]]['x'])
+       
+        '''ACCELERATION X'''
+        ax_rocket.append(fx_rocket[-1]/mass['Rocket'])    #km/s^2
+
+        '''VELOCITY X'''
+        vx_rocket.append(vx_rocket[-1]+ax_rocket[-1]*dt)    #km/s
+        
+        '''POSITION X'''
+        px[-1].append(px[-1][-1]+vx_rocket[t]*dt)          #km from origin
+       
+        
+        
+        ''' Y AXIS'''        
+        '''FINDING PLANET PY'''
+        for i,y1 in enumerate(py,0):
+            sum_force = 0               #only for the rocket
+            if names[i]=='Rocket':
+                for j,y2 in enumerate(py,0):
+                    if y1[t]>y2[t]:
+                        sign1y = -1
+                        sign2y = 1
+                    else:
+                        sign1y = 1
+                        sign2y = -1     
+                    if names[j]!='Rocket':
+                        sum_force+=G*Mass[i]*Mass[j]/(y1[t]-y2[t])**2*sign1y
+                sum_force+=fy_thrust
+                fy_rocket.append(sum_force)
+                continue            
+            y1.append(xyz_planet[names[i]]['y'])
+                
+        '''ACCELERATION Y'''
+        ay_rocket.append(fy_rocket[-1]/mass['Rocket'])    #km/s^2
+
+        '''VELOCITY Y'''
+        vy_rocket.append(vy_rocket[-1]+ay_rocket[t]*dt)    #km/s
+        
+        '''POSITION Y'''
+        py[-1].append(py[-1][-1]+vy_rocket[-1]*dt)          #km from origin
+       
+        '''BREAKING IF ROCKET HITS THE ATMOSPHER'''
+        A = collision(px,py)        
+        
+        '''DISTANCE'''
+        dx =x_target-px[-1][-1] 
+        dy =y_target-py[-1][-1]
+        distance = (dx**2+dy**2)**0.5
+        
+        '''TIMER'''
+        if t%1==0:
+            counter.append(1)
+            print(f'Distance Remaining:{distance} of {distance0} km')    
+            time_array.append(time.time())
+            #print('ETA = ', round((100-sum(counter))*(time_array[-1]-time_array[0])/sum(counter),2))
+        t +=1 
+        
+        '''FLIGHT TIME'''
+        flight_time = dt*t
+
+  
+    '''PRINTING COMP TIME'''    
+    end = time.time()
+    #print(f'Computation time = ', round((end-start),2))
+    print('Flight Time =', flight_time)
+    print()
+    return flight_time
+    
+    #OPTIMIZER 
+    start = time.time()
+'''INITIAL AND TARGET LOCATION'''
+px_now = movement(time.time(),0)
+x_rocket_0     = px_now['Earth']['x']+1000000000
+y_rocket_0     = px_now['Earth']['y']+1000000000
+x_target,y_target = [x_rocket_0+1E10,y_rocket_0+1E10]
+
+'''INITIAL HEADING '''
+#FIND BEST HEADING FROM INITIAL XY AND TARGET XY.  
+dx = x_target-x_rocket_0
+dy = y_target-y_rocket_0
+θ  = np.arctan(dy/dx)*180/pi
+
+if dx>0 and dy>0:
+    h0=θ
+if dx<0 and dy>0:
+    h0=180-θ
+if dx<0 and dy<0:
+    h0=180+θ
+if dx<0 and dy>0:
+    h0=360-θ
+print('Initial H = ',round(h0,2))
+print()
+
+'''MINIMIZING TIME'''
+H = minimize(function,h0, args=(x_rocket_0,y_rocket_0,x_target,y_target))
+print('The best heading is',H.x)
+end = time.time()
+print(f'TOTAL C0MPUTATIONAL TIME ={round((end-start),2)} seconds' )
+
+#PLOTTING
+'''SETTING SOME PARAMETERS'''
+w = 12
+
+'''X PLOTS'''
+plt.figure(figsize=(20,w))
+plt.subplot(8,1,1)
+plt.title('position', fontsize=17)
+for i,x in enumerate(px,0):
+    plt.plot(x[1:], label=names[i])
+plt.xlabel('time (seconds)')    
+plt.ylabel('km')
+plt.legend();
+    
+plt.figure(figsize=(20,w))
+plt.subplot(8,1,2)
+plt.title('velocities', fontsize=17)
+plt.plot(vx_rocket, label='rocket vx')
+plt.xlabel('time (seconds)')    
+plt.ylabel('km/s')
+plt.legend(); 
+
+plt.figure(figsize=(20,w))
+plt.subplot(8,1,3)
+plt.title('acceleration', fontsize=17)
+plt.plot(ax_rocket, label='rocket ax')
+plt.xlabel('time (seconds)')    
+plt.ylabel('km/s**2')
+plt.legend();
+
+plt.figure(figsize=(20,w))
+plt.subplot(8,1,4)
+plt.title('force', fontsize=17)
+plt.plot(fx_rocket, label='rocket f')
+plt.xlabel('time (seconds)')    
+plt.ylabel('newtons')
+plt.legend();
+
+'''Y PLOTS'''
+plt.figure(figsize=(20,w))
+plt.subplot(8,1,5)
+plt.title('position y', fontsize=17)
+for i,x in enumerate(py,0):
+    plt.plot(x[1:], label=names[i])
+plt.xlabel('time (seconds)')    
+plt.ylabel('km')
+plt.legend();
+    
+plt.figure(figsize=(20,w))
+plt.subplot(8,1,6)
+plt.title('velocities y', fontsize=17)
+plt.plot(vy_rocket, label='rocket vy')
+plt.xlabel('time (seconds)')    
+plt.ylabel('km')
+plt.legend();
+
+plt.figure(figsize=(20,w))
+plt.subplot(8,1,7)
+plt.title('acceleration y', fontsize=17)
+plt.plot(ay_rocket, label='rocket ay')
+plt.xlabel('time (seconds)')    
+plt.ylabel('km')
+plt.legend();
+
+plt.figure(figsize=(20,w))
+plt.subplot(8,1,8)
+plt.title('force y', fontsize=17)
+plt.plot(fy_rocket, label='rocket fy')
+plt.xlabel('time (seconds)')
+plt.ylabel('km')
+plt.legend();
